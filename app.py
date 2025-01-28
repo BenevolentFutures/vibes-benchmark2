@@ -1,6 +1,12 @@
 import gradio as gr
 import random
 import time
+import os
+import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 MAX_QUESTIONS = 10  # Maximum number of questions to support
 
@@ -8,26 +14,53 @@ MAX_QUESTIONS = 10  # Maximum number of questions to support
 # Fix the models
 # 
 MODELS = [
-    "anthropic/claude-3-opus",
-    "anthropic/claude-3-sonnet",
+    "anthropic/claude-3-opus-20240229",
+    "anthropic/claude-3-sonnet-20240229",
     "google/gemini-pro",
-    "meta-llama/llama-2-70b-chat",
-    "mistral/mistral-medium",
-    "deepseek/deepseek-coder",
-    "deepseek/deepseek-r1",
+    "mistralai/mistral-medium",  # Updated from mistral-7b-instruct
+    "anthropic/claude-2.1",
+    "openai/gpt-4-turbo-preview",
+    "openai/gpt-3.5-turbo"
 ]
 #
 ######
 
-######
-# Add OpenRouter here
-# 
+# Get configuration from environment variables
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL')
+
+if not OPENROUTER_API_KEY or not OPENROUTER_BASE_URL:
+    raise ValueError("Missing required environment variables. Please check your .env file.")
+
 def get_response(question, model):
-    # Simulate an API call with a random delay
-    time.sleep(random.uniform(0.5, 1.5))
-    return f"Sample response from {model} for: {question}"
-#
-######
+    """Get response from OpenRouter API for the given question and model."""
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": "http://localhost:7860",  # Replace with your actual domain
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": question}
+        ]
+    }
+    
+    try:
+        response = requests.post(
+            OPENROUTER_BASE_URL,
+            headers=headers,
+            json=data,
+            timeout=30  # 30 second timeout
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        return result['choices'][0]['message']['content']
+        
+    except requests.exceptions.RequestException as e:
+        return f"Error: Failed to get response from {model}: {str(e)}"
 
 def read_questions(file_obj):
     """Read questions from uploaded file and return as list"""
