@@ -28,15 +28,16 @@ MODELS = [
     # Standard Language Models
     {"display_name": "Claude 3 Opus", "model_id": "anthropic/claude-3-opus-20240229"},
     {"display_name": "Claude 3.5 Sonnet", "model_id": "anthropic/claude-3.5-sonnet"},
-    {"display_name": "Gemini Pro", "model_id": "google/gemini-pro"},
-    {"display_name": "Mistral Medium", "model_id": "mistralai/mistral-medium"},
-    {"display_name": "Claude 2.1", "model_id": "anthropic/claude-2.1"},
-    {"display_name": "GPT-4 Turbo", "model_id": "openai/gpt-4-turbo-preview"},
-    {"display_name": "GPT-3.5 Turbo", "model_id": "openai/gpt-3.5-turbo"},
+    {"display_name": "Gemini Flash 2.0 ", "model_id": "google/gemini-2.0-flash-exp:free"},
+    {"display_name": "Mistral Large", "model_id": "mistralai/mistral-large-2411"},
+    # {"display_name": "Claude 2.1", "model_id": "anthropic/claude-2.1"},
+    {"display_name": "GPT-4o", "model_id": "openai/gpt-4o-2024-11-20"},
+    # {"display_name": "GPT-3.5 Turbo", "model_id": "openai/gpt-3.5-turbo"},
     # Reasoning-specialized Models
     {"display_name": "Reasoner: O1-Mini", "model_id": "openai/o1-mini"},
     {"display_name": "Reasoner: O1 Preview", "model_id": "openai/o1-preview"},
-    {"display_name": "Reasoner: DeepSeek R1", "model_id": "deepseek/deepseek-r1"}
+    {"display_name": "Reasoner: DeepSeek R1", "model_id": "deepseek/deepseek-r1"},
+    {"display_name": "Reasoner: Google Gemni 2.0 Flash Thinking", "model_id": "google/gemini-2.0-flash-thinking-exp:free"}
 ]
 
 # Get configuration from environment variables
