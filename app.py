@@ -3,6 +3,7 @@ import random
 import time
 import os
 import requests
+import json
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -44,7 +45,8 @@ def get_response(question, model):
         "model": model,
         "messages": [
             {"role": "user", "content": question}
-        ]
+        ],
+        "stream": True
     }
     
     try:
@@ -52,12 +54,29 @@ def get_response(question, model):
             OPENROUTER_BASE_URL,
             headers=headers,
             json=data,
-            timeout=30  # 30 second timeout
+            timeout=30,  # 30 second timeout
+            stream=True
         )
         response.raise_for_status()
         
-        result = response.json()
-        return result['choices'][0]['message']['content']
+        full_response = ""
+        for line in response.iter_lines():
+            if line:
+                line = line.decode('utf-8')
+                if line.startswith('data: '):
+                    json_str = line[6:]  # Remove 'data: ' prefix
+                    if json_str.strip() == '[DONE]':
+                        break
+                    try:
+                        chunk = json.loads(json_str)
+                        if chunk['choices'][0]['delta'].get('content'):
+                            content = chunk['choices'][0]['delta']['content']
+                            full_response += content
+                            yield full_response
+                    except json.JSONDecodeError:
+                        continue
+        
+        return full_response
         
     except requests.exceptions.RequestException as e:
         return f"Error: Failed to get response from {model}: {str(e)}"
@@ -120,8 +139,6 @@ with gr.Blocks() as demo:
         questions = read_questions(file)
         
         # Initialize all update values as blank
-        # We have 4 fields per question (model1, response1, model2, response2)
-        # => total of MAX_QUESTIONS * 4 output components
         updates = [gr.update(value="")] * (MAX_QUESTIONS * 4)
         
         # Process each question, 2 models per question
@@ -132,9 +149,9 @@ with gr.Blocks() as demo:
             yield updates  # partial update (reveal model_1 accordion)
             
             # 2) Get response from model_1
-            response_1 = get_response(question, model_1)
-            updates[i*4 + 1] = gr.update(value=response_1)   # response1
-            yield updates
+            for response_1 in get_response(question, model_1):
+                updates[i*4 + 1] = gr.update(value=response_1)   # response1
+                yield updates
             
             # 3) Pick second model (ensure different from first), yield it
             remaining_models = [m for m in MODELS if m != model_1]
@@ -143,9 +160,9 @@ with gr.Blocks() as demo:
             yield updates
             
             # 4) Get response from model_2
-            response_2 = get_response(question, model_2)
-            updates[i*4 + 3] = gr.update(value=response_2)  # response2
-            yield updates
+            for response_2 in get_response(question, model_2):
+                updates[i*4 + 3] = gr.update(value=response_2)  # response2
+                yield updates
 
     # The outputs we update after each yield
     update_targets = []
