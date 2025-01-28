@@ -5,6 +5,8 @@ import os
 import requests
 import json
 from dotenv import load_dotenv
+import threading
+from queue import Queue, Empty
 
 # Load environment variables
 load_dotenv()
@@ -37,7 +39,7 @@ def get_response(question, model):
     """Get response from OpenRouter API for the given question and model."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "http://localhost:7860",  # Replace with your actual domain
+        "HTTP-Referer": "${SPACE_ID}.hf.space" if os.getenv('SPACE_ID') else "http://localhost:7860",
         "Content-Type": "application/json"
     }
     
@@ -89,102 +91,226 @@ def read_questions(file_obj):
             raise gr.Error(f"Maximum {MAX_QUESTIONS} questions allowed.")
     return questions
 
-with gr.Blocks() as demo:
-    gr.Markdown("# Vibes Benchmark\nUpload a `.txt` file with **one question per line**.")
+with gr.Blocks(title="Vibesmark Test Suite") as demo:
+    gr.Markdown("# Vibesmark Test Suite\nUpload a `.txt` file with **one question per line**.")
+    
+    # Store current state
+    state = gr.State({"questions": [], "current_index": 0})
     
     file_input = gr.File(label="Upload your questions (.txt)")
-    run_button = gr.Button("Run Benchmark", variant="primary")
+    with gr.Row():
+        prev_btn = gr.Button("← Previous", interactive=False)
+        question_counter = gr.Markdown("Question 0 / 0")
+        next_btn = gr.Button("Next →", interactive=False)
     
-    # Create dynamic response areas
-    response_areas = []
-    for i in range(MAX_QUESTIONS):
-        with gr.Group(visible=False) as group_i:
-            gr.Markdown(f"### Question {i+1}")
-            with gr.Row():
-                with gr.Column():
-                    # Accordion for Model 1
-                    with gr.Accordion("Model 1", open=False):
-                        model1_i = gr.Markdown("")
-                    response1_i = gr.Textbox(label="Response 1", interactive=False, lines=4)
-                with gr.Column():
-                    # Accordion for Model 2
-                    with gr.Accordion("Model 2", open=False):
-                        model2_i = gr.Markdown("")
-                    response2_i = gr.Textbox(label="Response 2", interactive=False, lines=4)
-            gr.Markdown("---")
-            
-        response_areas.append({
-            'group': group_i,
-            'model1': model1_i,
-            'response1': response1_i,
-            'model2': model2_i,
-            'response2': response2_i
-        })
+    with gr.Group() as question_group:
+        question_display = gr.Markdown("### Upload a file to begin")
+        with gr.Row():
+            with gr.Column():
+                with gr.Accordion("Model 1", open=False):
+                    model1_display = gr.Markdown("")
+                response1_display = gr.Textbox(label="Response 1", interactive=False, lines=4)
+            with gr.Column():
+                with gr.Accordion("Model 2", open=False):
+                    model2_display = gr.Markdown("")
+                response2_display = gr.Textbox(label="Response 2", interactive=False, lines=4)
+    
+    run_button = gr.Button("Run Comparison", variant="primary")
 
-    def process_file(file):
-        """Show/hide question groups depending on how many questions are in the file."""
+    def process_file(file, state):
         if file is None:
             raise gr.Error("Please upload a file first.")
         questions = read_questions(file)
+        new_state = {"questions": questions, "current_index": 0}
         
-        # Show as many question groups as needed; hide the rest
-        updates = []
-        for i in range(MAX_QUESTIONS):
-            updates.append(gr.update(visible=(i < len(questions))))
-        
-        return updates
+        # Return outputs in order matching the outputs list in the event handler
+        return [
+            f"### Question 1:\n{questions[0]}",  # question_display
+            f"Question 1 / {len(questions)}",    # question_counter
+            gr.update(interactive=False),        # prev_btn
+            gr.update(interactive=len(questions) > 1),  # next_btn
+            gr.update(value=""),                # model1_display
+            gr.update(value=""),                # response1_display
+            gr.update(value=""),                # model2_display
+            gr.update(value=""),                # response2_display
+            new_state                           # state
+        ]
 
-    def run_benchmark(file):
-        """Generator function yielding partial updates in real time."""
-        questions = read_questions(file)
+    def navigate_question(direction, state):
+        questions = state["questions"]
+        current_index = state["current_index"]
         
-        # Initialize all update values as blank
-        updates = [gr.update(value="")] * (MAX_QUESTIONS * 4)
+        if direction == "next" and current_index < len(questions) - 1:
+            current_index += 1
+        elif direction == "prev" and current_index > 0:
+            current_index -= 1
+            
+        new_state = state.copy()
+        new_state["current_index"] = current_index
         
-        # Process each question, 2 models per question
-        for i, question in enumerate(questions):
-            # 1) Pick first model, yield it
-            model_1 = random.choice(MODELS)
-            updates[i*4] = gr.update(value=f"**{model_1}**")  # model1 for question i
-            yield updates  # partial update (reveal model_1 accordion)
-            
-            # 2) Get response from model_1
-            for response_1 in get_response(question, model_1):
-                updates[i*4 + 1] = gr.update(value=response_1)   # response1
-                yield updates
-            
-            # 3) Pick second model (ensure different from first), yield it
-            remaining_models = [m for m in MODELS if m != model_1]
-            model_2 = random.choice(remaining_models)
-            updates[i*4 + 2] = gr.update(value=f"**{model_2}**")  # model2
-            yield updates
-            
-            # 4) Get response from model_2
-            for response_2 in get_response(question, model_2):
-                updates[i*4 + 3] = gr.update(value=response_2)  # response2
-                yield updates
+        # Return outputs in order matching the outputs list in the event handler
+        return [
+            f"### Question {current_index + 1}:\n{questions[current_index]}",  # question_display
+            f"Question {current_index + 1} / {len(questions)}",               # question_counter
+            gr.update(interactive=current_index > 0),                         # prev_btn
+            gr.update(interactive=current_index < len(questions) - 1),        # next_btn
+            gr.update(value=""),                                             # model1_display
+            gr.update(value=""),                                             # response1_display
+            gr.update(value=""),                                             # model2_display
+            gr.update(value=""),                                             # response2_display
+            new_state                                                        # state
+        ]
 
-    # The outputs we update after each yield
-    update_targets = []
-    for area in response_areas:
-        update_targets.append(area['model1'])
-        update_targets.append(area['response1'])
-        update_targets.append(area['model2'])
-        update_targets.append(area['response2'])
+    def get_responses_in_parallel(question, model1, model2):
+        """
+        Spawn two threads to run get_response for each model in parallel,
+        queuing partial responses as they arrive. Yields tuples of
+        (partial_response_model1, partial_response_model2).
+        """
+        queue1 = Queue()
+        queue2 = Queue()
+
+        def fill_queue(q, question, model):
+            for partial_response in get_response(question, model):
+                q.put(partial_response)
+            q.put(None)  # Sentinel indicating completion
+
+        # Spawn threads
+        t1 = threading.Thread(target=fill_queue, args=(queue1, question, model1))
+        t2 = threading.Thread(target=fill_queue, args=(queue2, question, model2))
+        t1.start()
+        t2.start()
+
+        # Initialize trackers
+        partial1 = ""
+        partial2 = ""
+        done1 = False
+        done2 = False
+
+        # Keep yielding as long as at least one thread is still producing
+        while not (done1 and done2):
+            try:
+                item1 = queue1.get(timeout=0.1)
+                if item1 is None:
+                    done1 = True
+                else:
+                    partial1 = item1
+            except Empty:
+                pass
+
+            try:
+                item2 = queue2.get(timeout=0.1)
+                if item2 is None:
+                    done2 = True
+                else:
+                    partial2 = item2
+            except Empty:
+                pass
+
+            yield partial1, partial2
+
+        # Join threads and finish
+        t1.join()
+        t2.join()
+
+    def run_comparison(state):
+        """
+        Run comparison for the current question, streaming both models'
+        responses in parallel.
+        """
+        if not state["questions"]:
+            raise gr.Error("Please upload a file first.")
+
+        current_question = state["questions"][state["current_index"]]
+
+        # Pick two distinct models
+        model_1 = random.choice(MODELS)
+        remaining_models = [m for m in MODELS if m != model_1]
+        model_2 = random.choice(remaining_models)
+
+        # Initial yield to display chosen models
+        yield [
+            gr.update(value=f"**{model_1}**"),
+            gr.update(value=""),
+            gr.update(value=f"**{model_2}**"),
+            gr.update(value="")
+        ]
+
+        # Now stream both model responses in parallel
+        for partial1, partial2 in get_responses_in_parallel(current_question, model_1, model_2):
+            yield [
+                gr.update(value=f"**{model_1}**"),
+                gr.update(value=partial1),
+                gr.update(value=f"**{model_2}**"),
+                gr.update(value=partial2)
+            ]
 
     # Connect events
     file_input.change(
         fn=process_file,
-        inputs=file_input,
-        outputs=[area['group'] for area in response_areas]
+        inputs=[file_input, state],
+        outputs=[
+            question_display,
+            question_counter,
+            prev_btn,
+            next_btn,
+            model1_display,
+            response1_display,
+            model2_display,
+            response2_display,
+            state
+        ]
+    )
+
+    prev_btn.click(
+        fn=lambda state: navigate_question("prev", state),
+        inputs=[state],
+        outputs=[
+            question_display,
+            question_counter,
+            prev_btn,
+            next_btn,
+            model1_display,
+            response1_display,
+            model2_display,
+            response2_display,
+            state
+        ]
+    )
+
+    next_btn.click(
+        fn=lambda state: navigate_question("next", state),
+        inputs=[state],
+        outputs=[
+            question_display,
+            question_counter,
+            prev_btn,
+            next_btn,
+            model1_display,
+            response1_display,
+            model2_display,
+            response2_display,
+            state
+        ]
     )
 
     run_button.click(
-        fn=run_benchmark,
-        inputs=file_input,
-        outputs=update_targets
+        fn=run_comparison,
+        inputs=[state],
+        outputs=[
+            model1_display,
+            response1_display,
+            model2_display,
+            response2_display
+        ]
     )
+
+    # Add footer with subtle styling
+    gr.Markdown("<p style='color: #666; font-size: 0.8em; text-align: center; margin-top: 2em;'>Homegrown software from the Chateau</p>")
 
 # Enable queue for partial outputs to appear as they are yielded
 demo.queue()
-demo.launch()
+
+# Launch with the appropriate host setting for deployment
+if __name__ == "__main__":
+    demo.launch(share=False, server_name="0.0.0.0", server_port=7860)
